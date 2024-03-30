@@ -36,6 +36,8 @@
           pkgs = let result = nixpkgsFor.${system}; in result.pkgs;
           baseDeps = with pkgs; [
             rust-bin.stable."1.76.0".default
+            rust-bin.stable."1.76.0".rustfmt
+            rust-bin.stable."1.76.0".rust-analyzer
           ];
         in
         {
