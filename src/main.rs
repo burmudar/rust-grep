@@ -2,11 +2,20 @@ use std::env;
 use std::io;
 use std::process;
 
+fn handle_digit(input_line: &str, _pattern: &str) -> bool {
+    input_line.chars().filter(|c| c.is_digit(10)).count() > 0
+}
+
 fn match_pattern(input_line: &str, pattern: &str) -> bool {
-    if pattern.chars().count() == 1 {
-        return input_line.contains(pattern);
-    } else {
-        panic!("Unhandled pattern: {}", pattern)
+    match pattern {
+        "\\d" => handle_digit(input_line, pattern),
+        _ => {
+            if pattern.chars().count() == 1 {
+                input_line.contains(pattern)
+            } else {
+                panic!("Unknown pattern")
+            }
+        }
     }
 }
 
@@ -30,5 +39,15 @@ fn main() {
         process::exit(0)
     } else {
         process::exit(1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::handle_digit;
+    #[test]
+    fn digits_are_detected() {
+        assert!(handle_digit("apple123", "\\d"));
+        assert!(handle_digit("apple", "\\d") == false);
     }
 }
