@@ -2,21 +2,47 @@ use std::env;
 use std::io;
 use std::process;
 
+enum Pattern {
+    Digit(String),
+    Literal(String),
+    AlphaNumeric(String),
+}
+
+impl Pattern {
+    fn from(pattern: &str) -> Pattern {
+        match pattern {
+            "\\d" => Pattern::Digit(pattern.to_string()),
+            "\\w" => Pattern::AlphaNumeric(pattern.to_string()),
+            _ => Pattern::Literal(pattern.to_string()),
+        }
+    }
+    fn match_on(&self, line: &str) -> Result<bool, String> {
+        match self {
+            Pattern::Digit(pattern) => Ok(handle_digit(line, pattern)),
+            Pattern::AlphaNumeric(pattern) => Ok(handle_alpha_numeric(line, pattern)),
+            Pattern::Literal(pattern) => {
+                if pattern.chars().count() == 1 {
+                    Ok(line.contains(pattern))
+                } else {
+                    Err(format!("unknown literal pattern: {}", pattern))
+                }
+            }
+        }
+    }
+}
+
 fn handle_digit(input_line: &str, _pattern: &str) -> bool {
     input_line.chars().filter(|c| c.is_digit(10)).count() > 0
 }
 
+fn handle_alpha_numeric(input_line: &str, _pattern: &str) -> bool {
+    input_line.chars().filter(|c| c.is_alphanumeric()).count() > 0
+}
+
 fn match_pattern(input_line: &str, pattern: &str) -> bool {
-    match pattern {
-        "\\d" => handle_digit(input_line, pattern),
-        _ => {
-            if pattern.chars().count() == 1 {
-                input_line.contains(pattern)
-            } else {
-                panic!("Unknown pattern")
-            }
-        }
-    }
+    Pattern::from(pattern)
+        .match_on(input_line)
+        .expect("Pattern match failure")
 }
 
 // Usage: echo <input_text> | your_grep.sh -E <pattern>
@@ -44,10 +70,39 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use crate::handle_digit;
+    use crate::Pattern;
+
     #[test]
-    fn digits_are_detected() {
-        assert!(handle_digit("apple123", "\\d"));
-        assert!(handle_digit("apple", "\\d") == false);
+    fn pattern_from_returns_correct_enum() {
+        assert!(matches!(Pattern::from("\\d"), Pattern::Digit(_)));
+        assert!(matches!(Pattern::from("\\w"), Pattern::AlphaNumeric(_)));
+        assert!(matches!(Pattern::from("f"), Pattern::Literal(_)));
+    }
+
+    #[test]
+    fn digit_character_class() {
+        let p = Pattern::Digit("\\d".to_string());
+        assert!(matches!(p.match_on("apple123"), Ok(true)));
+        assert!(matches!(p.match_on("apple"), Ok(false)));
+        assert!(matches!(p.match_on("---"), Ok(false)));
+    }
+
+    #[test]
+    fn alphanumeric_character_class() {
+        let p = Pattern::AlphaNumeric("\\w".to_string());
+        assert!(matches!(p.match_on("apple123"), Ok(true)));
+        assert!(matches!(p.match_on("apple"), Ok(true)));
+        // just punctuation should fail
+        assert!(matches!(p.match_on("---"), Ok(false)));
+        // letters, numbers and some punctuation should pass
+        assert!(matches!(p.match_on("alph4-num3ric"), Ok(true)));
+    }
+
+    #[test]
+    fn literal_match_on() {
+        let p = Pattern::Literal("f".to_string());
+        assert!(matches!(p.match_on("f"), Ok(true)));
+        assert!(matches!(p.match_on("a"), Ok(false)));
+        assert!(matches!(p.match_on(""), Ok(false)));
     }
 }
