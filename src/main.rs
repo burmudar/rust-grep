@@ -2,6 +2,8 @@ use std::env;
 use std::io;
 use std::process;
 
+pub mod dfa;
+
 enum Pattern {
     Digit(String),
     Literal(String),
