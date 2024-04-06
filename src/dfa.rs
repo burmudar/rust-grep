@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::rc::Rc;
 
-#[derive(Eq, Clone, Hash)]
+#[derive(Eq, Clone)]
 pub struct State {
     name: String,
     transitions: Vec<Transition>,
@@ -23,6 +23,12 @@ impl PartialEq<State> for State {
 impl PartialEq<&str> for State {
     fn eq(&self, other: &&str) -> bool {
         self.name == other.to_string()
+    }
+}
+
+impl std::hash::Hash for State {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state)
     }
 }
 
@@ -64,7 +70,7 @@ impl Matcher {
         Self::Epsilon
     }
 
-    fn matches(self: Self, c: char) -> bool {
+    fn matches(&self, c: char) -> bool {
         let predicate = match self {
             Self::Character(p) => p,
             Self::Epsilon => return true,
@@ -73,10 +79,17 @@ impl Matcher {
         predicate(c)
     }
 
-    fn is_epsilon(self: Self) -> bool {
+    fn is_epsilon(&self) -> bool {
         match self {
             Self::Epsilon => true,
             _ => false,
+        }
+    }
+
+    fn name(&self) -> &str {
+        match self {
+            Self::Character(_) => "Character",
+            Self::Epsilon => "Epsilon",
         }
     }
 }
@@ -112,48 +125,51 @@ impl State {
     }
 }
 
+struct EngineState {
+    pos: usize,
+    state: String,
+}
+
 struct NFAEngine {
     states: HashSet<State>,
-    initial_state: State,
-    ending_states: HashSet<State>,
+    initial_state: String,
+    ending_states: Vec<String>,
 }
 
 impl NFAEngine {
-    fn new(initial: State) -> NFAEngine {
-        let mut states = HashSet::new();
-        states.insert(initial.clone());
-        NFAEngine {
-            states,
-            initial_state: initial,
-            ending_states: HashSet::new(),
-        }
+    fn new_with_states(initial: &str, states: &[&str]) -> NFAEngine {
+        let mut engine = NFAEngine::new(initial);
+        engine.declare_states_with_names(states);
+        engine
     }
 
-    fn from(name: &str) -> NFAEngine {
-        NFAEngine::new(State::new(name))
+    fn new(initial: &str) -> NFAEngine {
+        let mut states = HashSet::new();
+        states.insert(State::new(initial));
+        NFAEngine {
+            states,
+            initial_state: initial.to_string(),
+            ending_states: Vec::new(),
+        }
     }
 
     fn state_len(&self) -> usize {
         return self.states.len();
     }
 
-    fn has_state(&self, state: &State) -> bool {
-        self.states.contains(state)
+    fn has_state(&self, state: &str) -> bool {
+        self.states.contains(&State::new(state))
     }
 
     fn get_state(&self, name: &str) -> Option<&State> {
         self.states.get(&State::new(name))
     }
 
-    fn has_state_name(&self, name: &str) -> bool {
-        self.has_state(&State::new(name))
+    fn add_state(&mut self, state: &str) -> bool {
+        self.states.insert(State::new(state))
     }
 
-    fn add_state(&mut self, state: &State) -> bool {
-        self.states.insert(state.clone())
-    }
-
-    fn add_states(&mut self, states: Vec<State>) {
+    fn add_states(&mut self, states: &Vec<String>) {
         states.iter().for_each(|s| {
             self.add_state(s);
         })
@@ -161,27 +177,43 @@ impl NFAEngine {
 
     fn declare_states_with_names(&mut self, names: &[&str]) {
         for &n in names {
-            self.add_state(&State::new(n));
+            self.add_state(n);
         }
     }
 
-    fn set_initial_state(&mut self, state: State) {
-        self.initial_state = state
+    fn set_initial_state(&mut self, state: &str) {
+        if self.has_state(state) {
+            self.initial_state = state.to_string()
+        } else {
+            panic!("state '{}' does not exist", state)
+        }
     }
 
-    fn set_ending_states(&mut self, states: Vec<State>) {
+    fn set_ending_states(&mut self, states: &[&str]) {
         states.iter().for_each(|s| {
             if !self.has_state(s) {
                 self.add_state(s);
             }
-            self.ending_states.insert(s.clone());
+            self.ending_states.clear();
+            states
+                .iter()
+                .for_each(|s| self.ending_states.push(s.to_string()));
         })
     }
 
-    fn add_transition(&mut self, from: State, to: State, matcher: Matcher) {
-        if let Some(mut s) = self.states.take(&from) {
-            s.add_transition(to, matcher);
-            self.states.insert(s);
+    fn is_ending_state(&self, state: &str) -> bool {
+        self.ending_states.contains(&state.to_string())
+    }
+
+    fn add_transition(&mut self, from: &str, to: &str, matcher: Matcher) {
+        match self.states.take(&State::new(from)) {
+            Some(mut s) => {
+                print!("transition<{}, {}>:{}", s.name, to, matcher.name());
+                s.add_transition(State::new(to), matcher);
+                println!("count: {}", s.transitions.len());
+                self.states.insert(s);
+            }
+            None => panic!("'{}' state not found!", from),
         }
     }
 
@@ -192,7 +224,50 @@ impl NFAEngine {
         }
     }
 
-    fn compute(self, value: String) -> bool {
+    fn compute(&self, value: &str) -> bool {
+        let mut stack = Vec::new();
+
+        stack.push(EngineState {
+            pos: 0,
+            state: self.initial_state.clone(),
+        });
+
+        while let Some(current) = stack.pop() {
+            println!("current state: {}", current.state);
+            if self.is_ending_state(&current.state) {
+                return true;
+            }
+
+            let transitions: &[Transition] = match self.get_state(&current.state) {
+                Some(state) => &state.transitions,
+                None => &[],
+            };
+            transitions.iter().rev().for_each(|t: &Transition| {
+                match value.chars().nth(current.pos) {
+                    Some(c) => {
+                        println!(
+                            "transition\n c: {}\n to: {}\n matcher:{}",
+                            c,
+                            t.to_state.name,
+                            t.matcher.name()
+                        );
+
+                        if t.matcher.matches(c) {
+                            let next_pos = match t.matcher.is_epsilon() {
+                                true => current.pos,
+                                false => current.pos + 1,
+                            };
+                            stack.push(EngineState {
+                                pos: next_pos,
+                                state: t.to_state.name.clone(),
+                            })
+                        }
+                    }
+                    _ => (),
+                };
+            })
+        }
+
         false
     }
 }
@@ -201,25 +276,24 @@ impl NFAEngine {
 mod tests {
     use crate::dfa::NFAEngine;
 
-    use super::State;
+    use super::{Matcher, State};
 
     #[test]
     fn engine_construct_has_initial_state() {
-        let engine = NFAEngine::from("hello");
+        let engine = NFAEngine::new("hello");
 
-        assert_eq!(engine.initial_state.name, "hello");
+        assert_eq!(engine.initial_state, "hello");
         assert_eq!(engine.state_len(), 1);
-        assert_eq!(engine.has_state_name("hello"), true);
+        assert_eq!(engine.has_state("hello"), true);
 
-        let state = engine
+        engine
             .get_state("hello")
             .expect("'hello' state should exist");
-        assert_eq!(engine.has_state(state), true)
     }
 
     #[test]
     fn engine_has_declared_states() {
-        let mut engine = NFAEngine::from("a");
+        let mut engine = NFAEngine::new("a");
 
         let extra_states = ["a", "b", "c"];
         engine.declare_states_with_names(&extra_states);
@@ -229,15 +303,15 @@ mod tests {
         assert_eq!(engine.state_len(), extra_states.len());
 
         for state_name in extra_states {
-            assert_eq!(engine.has_state_name(state_name), true);
+            assert_eq!(engine.has_state(state_name), true);
         }
     }
 
     #[test]
     fn engine_has_ending_states() {
-        let mut engine = NFAEngine::from("a");
+        let mut engine = NFAEngine::new("a");
 
-        let ending_states = State::from_collection(&["a", "b"]);
+        let ending_states = &["a", "b"];
 
         assert_eq!(engine.state_len(), 1);
         // set ending states  should add a state if it doesn't exist
@@ -247,5 +321,21 @@ mod tests {
 
         // let's get "b"
         assert!(matches!(engine.get_state("b"), Some(_)));
+    }
+
+    #[test]
+    fn compute() {
+        let mut engine = NFAEngine::new_with_states("q0", &["q0", "q1", "q2", "q3"]);
+
+        engine.set_ending_states(&["q3"]);
+        engine.add_transition("q0", "q1", Matcher::new_char('a'));
+        engine.add_transition("q1", "q2", Matcher::new_char('b'));
+        engine.add_transition("q2", "q2", Matcher::new_char('b'));
+        engine.add_transition("q2", "q3", Matcher::new_epsilon());
+
+        // assert_eq!(engine.compute("abbbbbb"), true);
+        // assert_eq!(engine.compute("aabbbbbb"), false);
+        assert_eq!(engine.compute("ab"), true);
+        assert_eq!(engine.compute("a"), false);
     }
 }
