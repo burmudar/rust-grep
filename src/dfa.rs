@@ -79,10 +79,13 @@ impl Matchers {
             Self::Character(p) => p,
             Self::Epsilon => return true,
         };
-        let c = input
-            .chars()
-            .nth(pos)
-            .expect("character to exist at position");
+
+        // if we don't have a character at this postion then just return false
+        let c = if let Some(ch) = input.chars().nth(pos) {
+            ch
+        } else {
+            return false;
+        };
         predicate(c)
     }
 
@@ -341,9 +344,9 @@ mod tests {
         engine.add_transition("q1", "q2", Matchers::new_char('b'));
         engine.add_transition("q2", "q3", Matchers::new_epsilon());
 
-        // assert_eq!(engine.compute("abbbbbb"), true);
-        // assert_eq!(engine.compute("aabbbbbb"), false);
+        assert_eq!(engine.compute("abbbbbb"), true);
+        assert_eq!(engine.compute("aabbbbbb"), false);
         assert_eq!(engine.compute("ab"), true);
-        //assert_eq!(engine.compute("a"), false);
+        assert_eq!(engine.compute("a"), false);
     }
 }
