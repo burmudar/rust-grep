@@ -138,6 +138,7 @@ impl State {
 struct EngineState {
     pos: usize,
     state: String,
+    memory: Vec<String>,
 }
 
 struct NFAEngine {
@@ -241,11 +242,10 @@ impl NFAEngine {
         stack.push(EngineState {
             pos: 0,
             state: self.initial_state.clone(),
+            memory: Vec::new(),
         });
 
         while let Some(current) = stack.pop() {
-            println!("---------------------------------");
-            println!("value: {} pos: {}", input, current.pos);
             if self.is_ending_state(&current.state) {
                 return true;
             }
@@ -254,27 +254,30 @@ impl NFAEngine {
                 Some(state) => &state.transitions,
                 None => &[],
             };
-            println!("~~ transitions {} ~~", transitions.len());
 
             for idx in (0..transitions.len()).rev() {
                 let t = &transitions[idx];
-                println!(
-                    "state: {} ({}) matcher: {}",
-                    current.state,
-                    current.pos,
-                    t.matcher.name()
-                );
                 if t.matcher.matches(input, current.pos) {
+                    let copy_memory = if t.matcher.is_epsilon() {
+                        // if we've been here before we continue the loop otherwise we'll get stuck
+                        if current.memory.contains(&t.matcher.name().to_string()) {
+                            continue;
+                        }
+                        let mut copy = current.memory.clone();
+                        copy.push(t.matcher.name().to_string());
+                        copy
+                    } else {
+                        Vec::new()
+                    };
                     let next_pos = if t.matcher.is_epsilon() {
                         current.pos
                     } else {
                         current.pos + 1
                     };
-                    println!(" -> next: {}", next_pos);
-                    println!(" -> next state: {}", t.to_state.name);
                     stack.push(EngineState {
                         pos: next_pos,
                         state: t.to_state.name.clone(),
+                        memory: copy_memory,
                     });
                 }
             }
@@ -348,5 +351,16 @@ mod tests {
         assert_eq!(engine.compute("aabbbbbb"), false);
         assert_eq!(engine.compute("ab"), true);
         assert_eq!(engine.compute("a"), false);
+    }
+
+    #[test]
+    fn stuck_forever() {
+        let mut engine = NFAEngine::new_with_states("q0", &["q0", "q1", "q2"]);
+        engine.set_ending_states(&["q2"]);
+        engine.add_transition("q0", "q1", Matchers::new_char('a'));
+        engine.add_transition("q1", "q1", Matchers::Epsilon);
+        engine.add_transition("q1", "q2", Matchers::new_char('b'));
+
+        assert!(engine.compute("ab"));
     }
 }
