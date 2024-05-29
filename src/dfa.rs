@@ -22,7 +22,7 @@ impl PartialEq<State> for State {
 // s == "william"
 impl PartialEq<&str> for State {
     fn eq(&self, other: &&str) -> bool {
-        self.name == other.to_string()
+        self.name == *other.to_string()
     }
 }
 
@@ -90,10 +90,7 @@ impl Matchers {
     }
 
     fn is_epsilon(&self) -> bool {
-        match self {
-            Self::Epsilon => true,
-            _ => false,
-        }
+        matches!(self, Self::Epsilon)
     }
 
     fn name(&self) -> &str {
@@ -165,7 +162,7 @@ impl NFAEngine {
     }
 
     fn state_len(&self) -> usize {
-        return self.states.len();
+        self.states.len()
     }
 
     fn has_state(&self, state: &str) -> bool {
@@ -180,7 +177,7 @@ impl NFAEngine {
         self.states.insert(State::new(state))
     }
 
-    fn add_states(&mut self, states: &Vec<String>) {
+    fn add_states(&mut self, states: &[String]) {
         states.iter().for_each(|s| {
             self.add_state(s);
         })
@@ -291,7 +288,7 @@ impl NFAEngine {
 mod tests {
     use crate::dfa::NFAEngine;
 
-    use super::{Matchers, State};
+    use super::Matchers;
 
     #[test]
     fn engine_construct_has_initial_state() {
@@ -299,7 +296,7 @@ mod tests {
 
         assert_eq!(engine.initial_state, "hello");
         assert_eq!(engine.state_len(), 1);
-        assert_eq!(engine.has_state("hello"), true);
+        assert!(engine.has_state("hello"));
 
         engine
             .get_state("hello")
@@ -318,7 +315,7 @@ mod tests {
         assert_eq!(engine.state_len(), extra_states.len());
 
         for state_name in extra_states {
-            assert_eq!(engine.has_state(state_name), true);
+            assert!(engine.has_state(state_name));
         }
     }
 
@@ -335,7 +332,7 @@ mod tests {
         assert_eq!(engine.state_len(), 2);
 
         // let's get "b"
-        assert!(matches!(engine.get_state("b"), Some(_)));
+        assert!(engine.get_state("b").is_some());
     }
 
     #[test]
@@ -347,10 +344,10 @@ mod tests {
         engine.add_transition("q1", "q2", Matchers::new_char('b'));
         engine.add_transition("q2", "q3", Matchers::new_epsilon());
 
-        assert_eq!(engine.compute("abbbbbb"), true);
-        assert_eq!(engine.compute("aabbbbbb"), false);
-        assert_eq!(engine.compute("ab"), true);
-        assert_eq!(engine.compute("a"), false);
+        assert!(engine.compute("abbbbbb"));
+        assert!(!engine.compute("aabbbbbb"));
+        assert!(engine.compute("ab"));
+        assert!(!engine.compute("a"));
     }
 
     #[test]
