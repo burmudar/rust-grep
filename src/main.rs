@@ -3,6 +3,7 @@ use std::io;
 use std::process;
 
 pub mod dfa;
+pub mod parser;
 
 enum Pattern {
     Digit(String),

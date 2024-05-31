@@ -260,6 +260,7 @@ impl NFAEngine {
                         if current.memory.contains(&t.matcher.name().to_string()) {
                             continue;
                         }
+                        // we haven't been here, so lets remember it
                         let mut copy = current.memory.clone();
                         copy.push(t.matcher.name().to_string());
                         copy
@@ -347,6 +348,7 @@ mod tests {
         assert!(engine.compute("abbbbbb"));
         assert!(!engine.compute("aabbbbbb"));
         assert!(engine.compute("ab"));
+        assert!(engine.compute("abc"));
         assert!(!engine.compute("a"));
     }
 
