@@ -1,6 +1,6 @@
+use core::result::Result;
 use std::error::Error;
 use std::fmt;
-use std::str::FromStr;
 
 #[derive(Debug)]
 enum ParseError {
@@ -18,100 +18,156 @@ impl fmt::Display for ParseError {
 }
 
 impl Error for ParseError {}
-// Read more here: https://kean.blog/post/regex-parser
-pub trait Parse {
+
+type ParseResult<'a, Output> = Result<(&'a str, Output), &'a str>;
+
+trait Parser<'a, Output> {
     type Output;
 
-    fn parse<'a>(&self, input: &'a str) -> Result<Option<(Self::Output, &'a str)>, ParseError>;
+    fn parse(&self, input: &'a str) -> ParseResult<'a, Output>;
 }
 
-struct HelloParser {}
+pub fn char_parser() -> impl Fn(&str) -> ParseResult<char> {
+    move |input: &str| {
+        if input.is_empty() {
+            return Err(input);
+        }
+        let c = input.chars().next().unwrap();
+        Ok((&input[1..], c))
+    }
+}
 
-impl Parse for HelloParser {
-    type Output = &'static str;
-
-    fn parse<'a>(&self, input: &'a str) -> Result<Option<(Self::Output, &'a str)>, ParseError> {
-        // if we have the prefix, rest will be the string with the prefix stripped, otherwise None
-        if let Some(rest) = input.strip_prefix("hello") {
-            Ok(Some(("hello", rest)))
-        } else {
-            Ok(None)
+pub fn filter<P, F, O>(parser: P, pred: F) -> impl Fn(&str) -> Result<(&str, O), &str>
+where
+    P: Fn(&str) -> Result<(&str, O), &str>,
+    F: Fn(&O) -> bool,
+{
+    move |input: &str| {
+        let result = (parser)(input);
+        match result {
+            Ok((next, c)) => {
+                if pred(&c) {
+                    Ok((next, c))
+                } else {
+                    Err(input)
+                }
+            }
+            Err(e) => Err(e),
         }
     }
 }
 
-struct CharParser {}
-impl Parse for CharParser {
-    type Output = &'static str;
-
-    fn parse<'a>(&self, input: &'a str) -> Result<Option<(Self::Output, &'a str)>, ParseError> {
-        // find the first non-numberic chat position
-        let pos = input
-            .find(|c: char| !c.is_alphabetic())
-            .unwrap_or(input.len());
-        let s = &input[0..pos];
-        let rest = &input[pos..];
-        if pos < 0 {
-            Ok(None)
-        } else {
-            Ok(Some((s, rest)))
-        }
+pub fn map<P, F, A, B>(parser: P, map_fn: F) -> impl Fn(&str) -> Result<(&str, B), &str>
+where
+    P: Fn(&str) -> Result<(&str, A), &str>,
+    F: Fn(A) -> B,
+{
+    move |input| match parser(input) {
+        Ok((next, r)) => Ok((next, map_fn(r))),
+        Err(err) => Err(err),
     }
 }
 
-struct NumberParser {}
-impl Parse for NumberParser {
-    type Output = i32;
+pub fn digit_parser() -> impl Fn(&str) -> ParseResult<String> {
+    map(
+        filter(char_parser(), |c: &char| c.is_digit(10)),
+        |c: char| c.to_string(),
+    )
+}
 
-    fn parse<'a>(&self, input: &'a str) -> Result<Option<(Self::Output, &'a str)>, ParseError> {
-        // find the first non-numberic chat position
-        let pos = input.find(|c: char| !c.is_numeric()).unwrap_or(input.len());
-        let num_str = &input[0..pos];
-        let rest = &input[pos..];
-        if let Ok(num) = num_str.parse::<i32>() {
-            Ok(Some((num, rest)))
+pub fn one_or_more<P, O>(parser: P) -> impl Fn(&str) -> ParseResult<Vec<O>>
+where
+    P: Fn(&str) -> ParseResult<O>,
+{
+    move |input| {
+        let mut s = input;
+        let mut matches = vec![];
+
+        if let Ok((next, r)) = parser(input) {
+            matches.push(r);
+            s = next;
         } else {
-            Ok(None)
+            return Err(s);
         }
+
+        while !s.is_empty() {
+            match parser(s) {
+                Ok((next, r)) => {
+                    matches.push(r);
+                    s = next;
+                }
+                Err(_) => break,
+            }
+        }
+        Ok((s, matches))
     }
+}
+
+pub fn zero_or_more<P>(parser: P) -> impl Fn(&str) -> ParseResult<Vec<&str>>
+where
+    P: Fn(&str) -> ParseResult<&str>,
+{
+    move |input| {
+        let mut s = input;
+        let mut matches = vec![];
+        while !s.is_empty() {
+            match parser(s) {
+                Ok((next, r)) => {
+                    matches.push(r);
+                    s = next;
+                }
+                Err(_) => break,
+            }
+        }
+        Ok((s, matches))
+    }
+}
+
+pub fn number_parser() -> impl Fn(&str) -> ParseResult<String> {
+    map(one_or_more(digit_parser()), |r: Vec<String>| {
+        let s: String = r.concat();
+        s
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::NumberParser;
-    use crate::parser::Parse;
+
+    use crate::parser;
+
+    #[test]
+    fn char_parser() {
+        let parse = parser::char_parser();
+        match parse("william") {
+            Ok((rest, c)) => {
+                assert!(c == 'w');
+                assert!(rest == "illiam");
+            }
+            Err(_) => panic!("unexpected error!"),
+        }
+    }
+
+    #[test]
+    fn digit_parser() {
+        let parser = parser::digit_parser();
+        match parser("1william") {
+            Ok((rest, d)) => {
+                assert!(d == "1");
+                assert!(rest == "william")
+            }
+            Err(e) => panic!("unexpected error! {}", e),
+        }
+    }
+
     #[test]
     fn number_parser() {
-        let parser = NumberParser {};
-
-        match parser.parse("123") {
-            Ok(Some((num, rest))) => {
-                assert_eq!(123, num);
-                assert_eq!("", rest)
+        let parse = parser::number_parser();
+        match parse("12a3william") {
+            Ok((rest, num)) => {
+                assert!(num == "12");
+                assert!(rest == "a3william");
             }
-            Ok(None) => panic!("got none but wanted '123' number"),
-            Err(e) => {
-                panic!("got error: {}", e)
-            }
-        }
-        match parser.parse("777 abc") {
-            Ok(Some((num, rest))) => {
-                assert_eq!(777, num);
-                assert_eq!(" abc", rest)
-            }
-            Ok(None) => panic!("got none but wanted '123' number"),
-            Err(e) => {
-                panic!("got error: {}", e)
-            }
-        }
-        match parser.parse("def 777 abc") {
-            Ok(Some(_)) => {
-                panic!("parsing should fail because the str starts with non numberic chars")
-            }
-            Ok(None) => assert!(true, "should not parse anything"),
-            Err(e) => {
-                panic!("got error: {}", e)
-            }
+            Err(_) => panic!("number parser unexpected error!"),
         }
     }
 }
