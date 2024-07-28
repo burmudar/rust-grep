@@ -57,7 +57,7 @@ where
     }
 }
 
-pub fn map<P, F, A, B>(parser: P, map_fn: F) -> impl Fn(&str) -> Result<(&str, B), &str>
+pub fn map<P, F, A, B>(parser: P, map_fn: F) -> impl Fn(&str) -> ParseResult<B>
 where
     P: Fn(&str) -> Result<(&str, A), &str>,
     F: Fn(A) -> B,
@@ -69,6 +69,12 @@ where
 }
 
 pub fn digit_parser() -> impl Fn(&str) -> ParseResult<String> {
+    /*
+     * 1. Create a charparser
+     * 2. For every matching char, apply the predicate "is_digit"
+     * 3. Thus add all digit chars to a vector
+     * 4. For all accumulated digit chars, "map" them to strings
+     */
     map(
         filter(char_parser(), |c: &char| c.is_digit(10)),
         |c: char| c.to_string(),
